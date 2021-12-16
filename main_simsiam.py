@@ -26,6 +26,7 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+import numpy as np
 
 import simsiam.loader
 import simsiam.builder
@@ -126,6 +127,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
+    train_loss = []
     args.gpu = gpu
 
     # suppress printing if not master
@@ -257,16 +259,19 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        epoch_loss = train(train_loader, model, criterion, optimizer, epoch, args)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
+            train_loss.append(epoch_loss)
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
                 'optimizer' : optimizer.state_dict(),
             }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
+
+    np.save("train_loss", train_loss)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args):
@@ -307,6 +312,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
+    return losses.avg
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):

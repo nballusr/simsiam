@@ -151,7 +151,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.distributed.barrier()
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = simsiam.builder.SimSiam(
+    model = simsiam.builder.BarlowTwins(
         models.__dict__[args.arch],
         args.dim, args.pred_dim)
 
@@ -296,14 +296,13 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
             images[1] = images[1].cuda(args.gpu, non_blocking=True)
 
         # compute output and loss
-        p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
-        loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
+        p1, p2, z1, z2, barlowtwins_loss = model(x1=images[0], x2=images[1])
 
-        losses.update(loss.item(), images[0].size(0))
+        losses.update(barlowtwins_loss.item(), images[0].size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
-        loss.backward()
+        barlowtwins_loss.backward()
         optimizer.step()
 
         # measure elapsed time

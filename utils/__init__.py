@@ -1,1 +1,1 @@
-from knn import kNN
+from utils.knn import kNN

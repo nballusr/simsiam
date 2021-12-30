@@ -31,7 +31,7 @@ model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
 
-parser = argparse.ArgumentParser(description='PyTorch FOOD101 Training')
+parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
                     help='path to dataset')
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
@@ -47,7 +47,7 @@ parser.add_argument('-b', '--batch-size', default=512, type=int,
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--checkpoint', required=True, type=str, metavar='PATH',
-                    help='path to latest checkpoint (default: none)')
+                    help='path to checkpoint')
 parser.add_argument('--world-size', default=-1, type=int,
                     help='number of nodes for distributed training')
 parser.add_argument('--rank', default=-1, type=int,
@@ -71,6 +71,7 @@ parser.add_argument('--dim', default=2048, type=int,
                     help='feature dimension (default: 2048)')
 parser.add_argument('--pred-dim', default=512, type=int,
                     help='hidden dimension of the predictor (default: 512)')
+
 
 def main():
     args = parser.parse_args()
@@ -106,7 +107,6 @@ def main():
         # Simply call main_worker function
         main_worker(args.gpu, ngpus_per_node, args)
 
-
 def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
 
@@ -135,30 +135,39 @@ def main_worker(gpu, ngpus_per_node, args):
         models.__dict__[args.arch],
         args.dim, args.pred_dim)
 
-    # Apply SyncBN
-    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    # For multiprocessing distributed, DistributedDataParallel constructor
-    # should always set the single device scope, otherwise,
-    # DistributedDataParallel will use all available devices.
-    if args.gpu is not None:
+    if args.distributed:
+        # Apply SyncBN
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        # For multiprocessing distributed, DistributedDataParallel constructor
+        # should always set the single device scope, otherwise,
+        # DistributedDataParallel will use all available devices.
+        if args.gpu is not None:
+            torch.cuda.set_device(args.gpu)
+            model.cuda(args.gpu)
+            # When using a single GPU per process and per
+            # DistributedDataParallel, we need to divide the batch size
+            # ourselves based on the total number of GPUs we have
+            args.batch_size = int(args.batch_size / ngpus_per_node)
+            args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        else:
+            model.cuda()
+            # DistributedDataParallel will divide and allocate batch_size to all
+            # available GPUs if device_ids are not set
+            model = torch.nn.parallel.DistributedDataParallel(model)
+    elif args.gpu is not None:
         torch.cuda.set_device(args.gpu)
-        model.cuda(args.gpu)
-        # When using a single GPU per process and per
-        # DistributedDataParallel, we need to divide the batch size
-        # ourselves based on the total number of GPUs we have
-        args.batch_size = int(args.batch_size / ngpus_per_node)
-        args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
+        model = model.cuda(args.gpu)
+        # comment out the following line for debugging
+        raise NotImplementedError("Only DistributedDataParallel is supported.")
     else:
-        model.cuda()
-        # DistributedDataParallel will divide and allocate batch_size to all
-        # available GPUs if device_ids are not set
-        model = torch.nn.parallel.DistributedDataParallel(model)
-
+        # AllGather implementation (batch shuffle, queue update, etc.) in
+        # this code only supports DistributedDataParallel.
+        raise NotImplementedError("Only DistributedDataParallel is supported.")
     print(model)  # print model after SyncBatchNorm
 
     # load the checkpoint to compute validation
-    if os.path.isfile(args.resume):
+    if os.path.isfile(args.checkpoint):
         print("=> loading checkpoint '{}'".format(args.resume))
         if args.gpu is None:
             checkpoint = torch.load(args.resume)

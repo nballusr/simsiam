@@ -83,7 +83,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
 parser.add_argument('--lambda-for-loss', default=1, type=float,
-                    help='lambda used in loss function for out diagonal elements')
+                    help='lambda used in loss function for off diagonal elements')
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -300,7 +300,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # compute output and loss
         p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
 
-        # Compute extended Simsiam loss function (proposed by us) with out diagonal elements
+        # Compute extended Simsiam loss function (proposed by us) with off diagonal elements
         p1_norm = torch.nn.functional.normalize(p1, dim=1)
         p2_norm = torch.nn.functional.normalize(torch.tensor(p2), dim=1)
         z1_norm = torch.nn.functional.normalize(torch.tensor(z1), dim=1)

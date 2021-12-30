@@ -226,7 +226,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # Data loading code
     traindir = os.path.join(args.data, 'train')
 
-    train_dataset = datasets.ImageFolder(traindir, BarlowTwinsTransform())
+    train_dataset = datasets.ImageFolder(traindir, Transform())
 
     if args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
@@ -355,17 +355,6 @@ def adjust_learning_rate(optimizer, init_lr, epoch, args):
         else:
             param_group['lr'] = cur_lr
 
-class GaussianBlur(object):
-    def __init__(self, p):
-        self.p = p
-
-    def __call__(self, img):
-        if random.random() < self.p:
-            sigma = random.random() * 1.9 + 0.1
-            return img.filter(ImageFilter.GaussianBlur(sigma))
-        else:
-            return
-
 
 class Solarization(object):
     def __init__(self, p):
@@ -378,7 +367,19 @@ class Solarization(object):
             return img
 
 
-class BarlowTwinsTransform:
+class GaussianBlur(object):
+    def __init__(self, p):
+        self.p = p
+
+    def __call__(self, img):
+        if random.random() < self.p:
+            sigma = random.random() * 1.9 + 0.1
+            return img.filter(ImageFilter.GaussianBlur(sigma))
+        else:
+            return img
+
+
+class Transform:
     def __init__(self):
         self.transform = transforms.Compose([
             transforms.RandomResizedCrop(224, interpolation=Image.BICUBIC),

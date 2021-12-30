@@ -300,9 +300,9 @@ def train(train_loader, model, optimizer, epoch, args):
 
         # Compute extended Simsiam loss function (proposed by us) with off diagonal elements
         p1_norm = torch.nn.functional.normalize(p1, dim=1)
-        p2_norm = torch.nn.functional.normalize(torch.tensor(p2), dim=1)
-        z1_norm = torch.nn.functional.normalize(torch.tensor(z1), dim=1)
-        z2_norm = torch.nn.functional.normalize(torch.tensor(z2), dim=1)
+        p2_norm = torch.nn.functional.normalize(p2, dim=1)
+        z1_norm = torch.nn.functional.normalize(z1, dim=1)
+        z2_norm = torch.nn.functional.normalize(z2, dim=1)
 
         corr_matrix_1 = p1_norm @ z2_norm.T
         corr_matrix_2 = p2_norm @ z1_norm.T

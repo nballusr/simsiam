@@ -181,6 +181,7 @@ def main_worker(gpu, ngpus_per_node, args):
               .format(args.checkpoint, checkpoint['epoch']))
     else:
         print("=> no checkpoint found at '{}'".format(args.checkpoint))
+        exit()
 
     cudnn.benchmark = True
 

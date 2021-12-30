@@ -82,6 +82,8 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
+parser.add_argument('--lambda-for-loss', default=1, type=float,
+                    help='lambda used in loss function for out diagonal elements')
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -310,7 +312,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         on_diag = torch.diagonal(corr_matrix_1).add(-1).pow(2).sum() + torch.diagonal(corr_matrix_2).add(-1).pow(
             2).sum()
         off_diag = off_diagonal(corr_matrix_1).pow(2).sum() + off_diagonal(corr_matrix_2).pow(2).sum()
-        loss = on_diag + off_diag
+        loss = on_diag + args.lambda_for_loss * off_diag
         # Finishes the computation of loss
 
         losses.update(loss.item(), images[0].size(0))

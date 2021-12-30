@@ -15,7 +15,6 @@ import time
 import warnings
 
 import torch
-import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -191,8 +190,7 @@ def main_worker(gpu, ngpus_per_node, args):
         raise NotImplementedError("Only DistributedDataParallel is supported.")
     print(model) # print model after SyncBatchNorm
 
-    # define loss function (criterion) and optimizer
-    criterion = nn.CosineSimilarity(dim=1).cuda(args.gpu)
+    # define optimizer
 
     if args.fix_pred_lr:
         optim_params = [{'params': model.module.encoder.parameters(), 'fix_lr': False},
@@ -261,7 +259,7 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
-        epoch_loss = train(train_loader, model, criterion, optimizer, epoch, args)
+        epoch_loss = train(train_loader, model, optimizer, epoch, args)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
@@ -276,7 +274,7 @@ def main_worker(gpu, ngpus_per_node, args):
     np.save("train_loss", train_loss)
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, model, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4f')

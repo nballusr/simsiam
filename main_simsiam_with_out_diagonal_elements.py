@@ -297,7 +297,21 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         # compute output and loss
         p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
-        loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
+
+        # Compute extended Simsiam loss function (proposed by us) with out diagonal elements
+        p1_norm = torch.nn.functional.normalize(p1, dim=1)
+        p2_norm = torch.nn.functional.normalize(torch.tensor(p2), dim=1)
+        z1_norm = torch.nn.functional.normalize(torch.tensor(z1), dim=1)
+        z2_norm = torch.nn.functional.normalize(torch.tensor(z2), dim=1)
+
+        corr_matrix_1 = p1_norm @ z2_norm.T
+        corr_matrix_2 = p2_norm @ z1_norm.T
+
+        on_diag = torch.diagonal(corr_matrix_1).add(-1).pow(2).sum() + torch.diagonal(corr_matrix_2).add(-1).pow(
+            2).sum()
+        off_diag = off_diagonal(corr_matrix_1).pow(2).sum() + off_diagonal(corr_matrix_2).pow(2).sum()
+        loss = on_diag + off_diag
+        # Finishes the computation of loss
 
         losses.update(loss.item(), images[0].size(0))
 
@@ -370,6 +384,13 @@ def adjust_learning_rate(optimizer, init_lr, epoch, args):
             param_group['lr'] = init_lr
         else:
             param_group['lr'] = cur_lr
+
+
+def off_diagonal(x):
+    # return a flattened view of the off-diagonal elements of a square matrix
+    n, m = x.shape
+    assert n == m
+    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
 
 
 if __name__ == '__main__':

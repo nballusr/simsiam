@@ -168,19 +168,19 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # load the checkpoint to compute validation
     if os.path.isfile(args.checkpoint):
-        print("=> loading checkpoint '{}'".format(args.resume))
+        print("=> loading checkpoint '{}'".format(args.checkpoint))
         if args.gpu is None:
-            checkpoint = torch.load(args.resume)
+            checkpoint = torch.load(args.checkpoint)
         else:
             # Map model to be loaded to specified single gpu.
             loc = 'cuda:{}'.format(args.gpu)
-            checkpoint = torch.load(args.resume, map_location=loc)
+            checkpoint = torch.load(args.checkpoint, map_location=loc)
         checkpoint_epoch = checkpoint['epoch']
         model.load_state_dict(checkpoint['state_dict'])
         print("=> loaded checkpoint '{}' (epoch {})"
-              .format(args.resume, checkpoint['epoch']))
+              .format(args.checkpoint, checkpoint['epoch']))
     else:
-        print("=> no checkpoint found at '{}'".format(args.resume))
+        print("=> no checkpoint found at '{}'".format(args.checkpoint))
 
     cudnn.benchmark = True
 

@@ -211,7 +211,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     encoder = model.module.encoder
     encoder.fc = nn.Identity()
-    kNN(checkpoint_epoch, train_knn_loader, val_loader, 200, 'cuda')
+    kNN(checkpoint_epoch, encoder, train_knn_loader, val_loader, 200, 'cuda')
 
 
 if __name__ == '__main__':

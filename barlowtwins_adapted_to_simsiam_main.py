@@ -29,7 +29,7 @@ import torchvision.models as models
 import numpy as np
 
 import simsiam.loader
-import simsiam.builder
+import simsiam.barlowtwins_adapted_to_simsiam
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -151,7 +151,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.distributed.barrier()
     # create model
     print("=> creating model '{}'".format(args.arch))
-    model = simsiam.builder.BarlowTwins(
+    model = simsiam.barlowtwins_adapted_to_simsiam.BarlowTwins(
         models.__dict__[args.arch],
         args.dim, args.pred_dim)
 

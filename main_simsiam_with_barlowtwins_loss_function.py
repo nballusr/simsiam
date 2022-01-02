@@ -129,6 +129,8 @@ def main():
 
 def main_worker(gpu, ngpus_per_node, args):
     train_loss = []
+    diag_contribution = []
+    off_diag_contribution = []
     args.gpu = gpu
 
     # suppress printing if not master
@@ -259,25 +261,35 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
-        epoch_loss = train(train_loader, model, optimizer, epoch, args)
+        epoch_loss, epoch_diag_contr, epoch_off_diag_contr = train(train_loader, model, optimizer, epoch, args)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
             train_loss.append(epoch_loss)
+            diag_contribution += epoch_diag_contr
+            off_diag_contribution += epoch_off_diag_contr
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
-                'optimizer' : optimizer.state_dict(),
+                'optimizer': optimizer.state_dict(),
             }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
+            np.save("train_loss", train_loss)
+            np.save("diag_contribution", diag_contribution)
+            np.save("off_diag_contribution", off_diag_contribution)
 
     np.save("train_loss", train_loss)
+    np.save("diag_contribution", diag_contribution)
+    np.save("off_diag_contribution", off_diag_contribution)
 
 
 def train(train_loader, model, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4f')
+    diag_contr = []
+    off_diag_contr = []
+
     progress = ProgressMeter(
         len(train_loader),
         [batch_time, data_time, losses],
@@ -313,6 +325,10 @@ def train(train_loader, model, optimizer, epoch, args):
         loss = on_diag + args.lambda_for_loss * off_diag
         # Finishes the computation of loss
 
+        # Save contribution of diagonal and off diagonal elements to loss
+        diag_contr.append(on_diag.detach().cpu().numpy())
+        off_diag_contr.append(off_diag.detach().cpu().numpy())
+
         losses.update(loss.item(), images[0].size(0))
 
         # compute gradient and do SGD step
@@ -326,7 +342,7 @@ def train(train_loader, model, optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
-    return losses.avg
+    return losses.avg, diag_contr, off_diag_contr
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):

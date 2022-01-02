@@ -278,10 +278,6 @@ def main_worker(gpu, ngpus_per_node, args):
             np.save("diag_contribution", diag_contribution)
             np.save("off_diag_contribution", off_diag_contribution)
 
-    np.save("train_loss", train_loss)
-    np.save("diag_contribution", diag_contribution)
-    np.save("off_diag_contribution", off_diag_contribution)
-
 
 def train(train_loader, model, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')

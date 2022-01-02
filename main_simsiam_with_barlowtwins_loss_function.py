@@ -298,14 +298,14 @@ def train(train_loader, model, optimizer, epoch, args):
         # compute output and loss
         p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
 
-        # Compute extended Simsiam loss function (proposed by us) with off diagonal elements
-        p1_norm = torch.nn.functional.normalize(p1, dim=1)
-        p2_norm = torch.nn.functional.normalize(p2, dim=1)
-        z1_norm = torch.nn.functional.normalize(z1, dim=1)
-        z2_norm = torch.nn.functional.normalize(z2, dim=1)
+        # Compute a modification of Barlow Twins loss function
+        p1_norm = (p1 - p1.mean(0)) / p1.std(0)
+        p2_norm = (p2 - p2.mean(0)) / p2.std(0)
+        z1_norm = (z1 - z1.mean(0)) / z1.std(0)
+        z2_norm = (z2 - z2.mean(0)) / z2.std(0)
 
-        corr_matrix_1 = p1_norm @ z2_norm.T
-        corr_matrix_2 = p2_norm @ z1_norm.T
+        corr_matrix_1 = (p1_norm.T @ z2_norm) / images[0].size(0)
+        corr_matrix_2 = (p2_norm.T @ z1_norm) / images[0].size(0)
 
         on_diag = torch.diagonal(corr_matrix_1).add(-1).pow(2).sum() + torch.diagonal(corr_matrix_2).add(-1).pow(
             2).sum()

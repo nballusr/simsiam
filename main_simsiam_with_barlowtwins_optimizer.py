@@ -27,13 +27,14 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 import numpy as np
+from torch import optim
 
 import simsiam.loader
 import simsiam.builder
 
 model_names = sorted(name for name in models.__dict__
-    if name.islower() and not name.startswith("__")
-    and callable(models.__dict__[name]))
+                     if name.islower() and not name.startswith("__")
+                     and callable(models.__dict__[name]))
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('data', metavar='DIR',
@@ -41,8 +42,8 @@ parser.add_argument('data', metavar='DIR',
 parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet50',
                     choices=model_names,
                     help='model architecture: ' +
-                        ' | '.join(model_names) +
-                        ' (default: resnet50)')
+                         ' | '.join(model_names) +
+                         ' (default: resnet50)')
 parser.add_argument('-j', '--workers', default=32, type=int, metavar='N',
                     help='number of data loading workers (default: 32)')
 parser.add_argument('--epochs', default=100, type=int, metavar='N',
@@ -54,13 +55,14 @@ parser.add_argument('-b', '--batch-size', default=512, type=int,
                     help='mini-batch size (default: 512), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.05, type=float,
-                    metavar='LR', help='initial (base) learning rate', dest='lr')
-parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
-                    help='momentum of SGD solver')
-parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
-                    metavar='W', help='weight decay (default: 1e-4)',
-                    dest='weight_decay')
+### New hyperparameters ###
+parser.add_argument('--learning-rate-weights', default=0.2, type=float, metavar='LR',
+                    help='base learning rate for weights')
+parser.add_argument('--learning-rate-biases', default=0.0048, type=float, metavar='LR',
+                    help='base learning rate for biases and batch norm parameters')
+parser.add_argument('--weight-decay', default=1e-6, type=float, metavar='W',
+                    help='weight decay')
+### End of new hyperparameters ###
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
@@ -88,8 +90,7 @@ parser.add_argument('--dim', default=2048, type=int,
                     help='feature dimension (default: 2048)')
 parser.add_argument('--pred-dim', default=512, type=int,
                     help='hidden dimension of the predictor (default: 512)')
-parser.add_argument('--fix-pred-lr', action='store_true',
-                    help='Fix learning rate for the predictor')
+
 
 def main():
     args = parser.parse_args()
@@ -134,6 +135,7 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.multiprocessing_distributed and args.gpu != 0:
         def print_pass(*args):
             pass
+
         builtins.print = print_pass
 
     if args.gpu is not None:
@@ -154,9 +156,6 @@ def main_worker(gpu, ngpus_per_node, args):
     model = simsiam.builder.SimSiam(
         models.__dict__[args.arch],
         args.dim, args.pred_dim)
-
-    # infer learning rate before changing batch size
-    init_lr = args.lr * args.batch_size / 256
 
     if args.distributed:
         # Apply SyncBN
@@ -187,20 +186,22 @@ def main_worker(gpu, ngpus_per_node, args):
         # AllGather implementation (batch shuffle, queue update, etc.) in
         # this code only supports DistributedDataParallel.
         raise NotImplementedError("Only DistributedDataParallel is supported.")
-    print(model) # print model after SyncBatchNorm
+    print(model)  # print model after SyncBatchNorm
 
     # define loss function (criterion) and optimizer
     criterion = nn.CosineSimilarity(dim=1).cuda(args.gpu)
 
-    if args.fix_pred_lr:
-        optim_params = [{'params': model.module.encoder.parameters(), 'fix_lr': False},
-                        {'params': model.module.predictor.parameters(), 'fix_lr': True}]
-    else:
-        optim_params = model.parameters()
+    param_weights = []
+    param_biases = []
+    for param in model.module.parameters():
+        if param.ndim == 1:
+            param_biases.append(param)
+        else:
+            param_weights.append(param)
+    parameters = [{'params': param_weights}, {'params': param_biases}]
 
-    optimizer = torch.optim.SGD(optim_params, init_lr,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
+    optimizer = LARS(parameters, lr=0, weight_decay=args.weight_decay, weight_decay_filter=True,
+                     lars_adaptation_filter=True)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -256,19 +257,18 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
         epoch_loss = train(train_loader, model, criterion, optimizer, epoch, args)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                                                    and args.rank % ngpus_per_node == 0):
             train_loss.append(epoch_loss)
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.arch,
                 'state_dict': model.state_dict(),
-                'optimizer' : optimizer.state_dict(),
+                'optimizer': optimizer.state_dict(),
             }, is_best=False, filename='checkpoint_{:04d}.pth.tar'.format(epoch))
 
     np.save("train_loss", train_loss)
@@ -294,6 +294,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         if args.gpu is not None:
             images[0] = images[0].cuda(args.gpu, non_blocking=True)
             images[1] = images[1].cuda(args.gpu, non_blocking=True)
+        adjust_learning_rate(args, optimizer, train_loader, epoch * len(train_loader) + i)
+        optimizer.zero_grad()
 
         # compute output and loss
         p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
@@ -301,8 +303,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         losses.update(loss.item(), images[0].size(0))
 
-        # compute gradient and do SGD step
-        optimizer.zero_grad()
+        # compute gradient and do step
         loss.backward()
         optimizer.step()
 
@@ -323,6 +324,7 @@ def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
+
     def __init__(self, name, fmt=':f'):
         self.name = name
         self.fmt = fmt
@@ -362,14 +364,61 @@ class ProgressMeter(object):
         return '[' + fmt + '/' + fmt.format(num_batches) + ']'
 
 
-def adjust_learning_rate(optimizer, init_lr, epoch, args):
-    """Decay the learning rate based on schedule"""
-    cur_lr = init_lr * 0.5 * (1. + math.cos(math.pi * epoch / args.epochs))
-    for param_group in optimizer.param_groups:
-        if 'fix_lr' in param_group and param_group['fix_lr']:
-            param_group['lr'] = init_lr
-        else:
-            param_group['lr'] = cur_lr
+def adjust_learning_rate(args, optimizer, loader, step):
+    max_steps = args.epochs * len(loader)
+    warmup_steps = 10 * len(loader)
+    base_lr = args.batch_size / 256
+    if step < warmup_steps:
+        lr = base_lr * step / warmup_steps
+    else:
+        step -= warmup_steps
+        max_steps -= warmup_steps
+        q = 0.5 * (1 + math.cos(math.pi * step / max_steps))
+        end_lr = base_lr * 0.001
+        lr = base_lr * q + end_lr * (1 - q)
+    optimizer.param_groups[0]['lr'] = lr * args.learning_rate_weights
+    optimizer.param_groups[1]['lr'] = lr * args.learning_rate_biases
+
+
+class LARS(optim.Optimizer):
+    def __init__(self, params, lr, weight_decay=0, momentum=0.9, eta=0.001,
+                 weight_decay_filter=False, lars_adaptation_filter=False):
+        defaults = dict(lr=lr, weight_decay=weight_decay, momentum=momentum,
+                        eta=eta, weight_decay_filter=weight_decay_filter,
+                        lars_adaptation_filter=lars_adaptation_filter)
+        super().__init__(params, defaults)
+
+    def exclude_bias_and_norm(self, p):
+        return p.ndim == 1
+
+    @torch.no_grad()
+    def step(self):
+        for g in self.param_groups:
+            for p in g['params']:
+                dp = p.grad
+
+                if dp is None:
+                    continue
+
+                if not g['weight_decay_filter'] or not self.exclude_bias_and_norm(p):
+                    dp = dp.add(p, alpha=g['weight_decay'])
+
+                if not g['lars_adaptation_filter'] or not self.exclude_bias_and_norm(p):
+                    param_norm = torch.norm(p)
+                    update_norm = torch.norm(dp)
+                    one = torch.ones_like(param_norm)
+                    q = torch.where(param_norm > 0.,
+                                    torch.where(update_norm > 0,
+                                                (g['eta'] * param_norm / update_norm), one), one)
+                    dp = dp.mul(q)
+
+                param_state = self.state[p]
+                if 'mu' not in param_state:
+                    param_state['mu'] = torch.zeros_like(p)
+                mu = param_state['mu']
+                mu.mul_(g['momentum']).add_(dp)
+
+                p.add_(mu, alpha=-g['lr'])
 
 
 if __name__ == '__main__':

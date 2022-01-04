@@ -54,6 +54,9 @@ parser.add_argument('-b', '--batch-size', default=512, type=int,
                     help='mini-batch size (default: 512), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
+parser.add_argument('--real-batch-size', default=512, type=int,
+                    metavar='N',
+                    help='real batch size used after grad accumulation (default: 512)')
 parser.add_argument('--lr', '--learning-rate', default=0.05, type=float,
                     metavar='LR', help='initial (base) learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
@@ -93,6 +96,8 @@ parser.add_argument('--fix-pred-lr', action='store_true',
 
 def main():
     args = parser.parse_args()
+
+    assert args.real_batch_size % args.batch_size == 0
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -156,7 +161,7 @@ def main_worker(gpu, ngpus_per_node, args):
         args.dim, args.pred_dim)
 
     # infer learning rate before changing batch size
-    init_lr = args.lr * args.batch_size / 256
+    init_lr = args.lr * args.real_batch_size / 256
 
     if args.distributed:
         # Apply SyncBN
@@ -287,6 +292,9 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
     model.train()
 
     end = time.time()
+
+    accum_iter = args.real_batch_size / args.batch_size
+
     for i, (images, _) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
@@ -300,11 +308,14 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         loss = -(criterion(p1, z2).mean() + criterion(p2, z1).mean()) * 0.5
 
         losses.update(loss.item(), images[0].size(0))
+        loss = loss / accum_iter
 
-        # compute gradient and do SGD step
-        optimizer.zero_grad()
         loss.backward()
-        optimizer.step()
+
+        if (i+1) % accum_iter == 0 or (i+1) == len(train_loader):
+            # compute gradient and do SGD step
+            optimizer.step()
+            optimizer.zero_grad()
 
         # measure elapsed time
         batch_time.update(time.time() - end)

@@ -255,14 +255,13 @@ def main_worker(gpu, ngpus_per_node, args):
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler, drop_last=True)
 
-    scaler = torch.cuda.amp.GradScaler()
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         adjust_learning_rate(optimizer, init_lr, epoch, args)
 
         # train for one epoch
-        epoch_loss, epoch_diag_contr, epoch_off_diag_contr = train(train_loader, model, optimizer, epoch, args, scaler)
+        epoch_loss, epoch_diag_contr, epoch_off_diag_contr = train(train_loader, model, optimizer, epoch, args)
 
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
@@ -280,7 +279,7 @@ def main_worker(gpu, ngpus_per_node, args):
             np.save("off_diag_contribution", off_diag_contribution)
 
 
-def train(train_loader, model, optimizer, epoch, args, scaler):
+def train(train_loader, model, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4f')
@@ -306,23 +305,22 @@ def train(train_loader, model, optimizer, epoch, args, scaler):
 
         optimizer.zero_grad()
         # compute output and loss
-        with torch.cuda.amp.autocast():
-            p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
+        p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
 
-            # Compute Barlow Twins loss function
-            p1_norm = (p1 - p1.mean(0)) / p1.std(0)
-            p2_norm = (p2 - p2.mean(0)) / p2.std(0)
-            z1_norm = (z1 - z1.mean(0)) / z1.std(0)
-            z2_norm = (z2 - z2.mean(0)) / z2.std(0)
+        # Compute Barlow Twins loss function
+        p1_norm = (p1 - p1.mean(0)) / p1.std(0)
+        p2_norm = (p2 - p2.mean(0)) / p2.std(0)
+        z1_norm = (z1 - z1.mean(0)) / z1.std(0)
+        z2_norm = (z2 - z2.mean(0)) / z2.std(0)
 
-            corr_matrix_1 = (p1_norm.T @ z2_norm) / images[0].size(0)
-            corr_matrix_2 = (p2_norm.T @ z1_norm) / images[0].size(0)
+        corr_matrix_1 = (p1_norm.T @ z2_norm) / images[0].size(0)
+        corr_matrix_2 = (p2_norm.T @ z1_norm) / images[0].size(0)
 
-            on_diag = torch.diagonal(corr_matrix_1).add(-1).pow(2).sum() + torch.diagonal(corr_matrix_2).add(-1).pow(
-                2).sum()
-            off_diag = off_diagonal(corr_matrix_1).pow(2).sum() + off_diagonal(corr_matrix_2).pow(2).sum()
-            loss = on_diag + args.lambda_for_loss * off_diag
-            # Finishes the computation of loss
+        on_diag = torch.diagonal(corr_matrix_1).add(-1).pow(2).sum() + torch.diagonal(corr_matrix_2).add(-1).pow(
+            2).sum()
+        off_diag = off_diagonal(corr_matrix_1).pow(2).sum() + off_diagonal(corr_matrix_2).pow(2).sum()
+        loss = on_diag + args.lambda_for_loss * off_diag
+        # Finishes the computation of loss
 
         # Save contribution of diagonal and off diagonal elements to loss
         diag_contr.append(on_diag.detach().cpu().numpy())
@@ -331,9 +329,8 @@ def train(train_loader, model, optimizer, epoch, args, scaler):
         losses.update(loss.item(), images[0].size(0))
 
         # compute gradient and do SGD step
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
+        loss.backward()
+        optimizer.step()
 
         # measure elapsed time
         batch_time.update(time.time() - end)

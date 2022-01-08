@@ -307,7 +307,7 @@ def train(train_loader, model, optimizer, epoch, args):
         corr_matrix_1 = p1_norm @ z2_norm.T
         corr_matrix_2 = p2_norm @ z1_norm.T
 
-        on_diag = (torch.diagonal(corr_matrix_1).mean() + torch.diagonal(corr_matrix_2)) * 0.5
+        on_diag = - (torch.diagonal(corr_matrix_1).mean() + torch.diagonal(corr_matrix_2)) * 0.5
         off_diag = (torch.abs(off_diagonal(corr_matrix_1)).mean() + torch.abs(off_diagonal(corr_matrix_2)).mean()) * 0.5
         loss = on_diag + args.lambda_for_loss * off_diag
         # Finishes the computation of loss

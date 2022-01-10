@@ -81,8 +81,10 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
-parser.add_argument('--lambda-for-loss', default=1, type=float,
-                    help='lambda used in loss function for off diagonal elements')
+parser.add_argument('--lambda-for-loss-diff-class', default=1, type=float,
+                    help='lambda used in loss function for off diagonal elements of different class')
+parser.add_argument('--lambda-for-loss-same-class', default=1, type=float,
+                    help='lambda used in loss function for off diagonal elements of same class')
 
 # simsiam specific configs:
 parser.add_argument('--dim', default=2048, type=int,
@@ -287,7 +289,7 @@ def train(train_loader, model, optimizer, epoch, args):
     model.train()
 
     end = time.time()
-    for i, (images, _) in enumerate(train_loader):
+    for i, (images, labels) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -307,9 +309,16 @@ def train(train_loader, model, optimizer, epoch, args):
         corr_matrix_1 = p1_norm @ z2_norm.T
         corr_matrix_2 = p2_norm @ z1_norm.T
 
+        m = torch.zeros((labels.size(0), labels.size(0)), device=args.gpu)
+        for i in range(labels.size(0)):
+            m[i, labels[i] == labels] = 1
+
         on_diag = - (torch.diagonal(corr_matrix_1).mean() + torch.diagonal(corr_matrix_2).mean()) * 0.5
-        off_diag = (torch.abs(off_diagonal(corr_matrix_1)).mean() + torch.abs(off_diagonal(corr_matrix_2)).mean()) * 0.5
-        loss = on_diag + args.lambda_for_loss * off_diag
+        off_diag_diff_class = (torch.abs(matrix_values_with_mask(corr_matrix_1, m, 0)).mean() +
+                               torch.abs(matrix_values_with_mask(corr_matrix_2, m, 0)).mean()) * 0.5
+        off_diag_same_class = - (matrix_values_with_mask(corr_matrix_1, m - torch.eye(labels.size(0)), 1).mean() +
+                                 matrix_values_with_mask(corr_matrix_2, m - torch.eye(labels.size(0)), 1).mean()) * 0.5
+        loss = on_diag + args.lambda_for_loss_diff_class * off_diag_diff_class + args.lambda_for_loss_same_class * off_diag_same_class
         # Finishes the computation of loss
 
         losses.update(loss.item(), images[0].size(0))
@@ -385,11 +394,11 @@ def adjust_learning_rate(optimizer, init_lr, epoch, args):
             param_group['lr'] = cur_lr
 
 
-def off_diagonal(x):
-    # return a flattened view of the off-diagonal elements of a square matrix
+def matrix_values_with_mask(x, mask, mask_value):
+    # return a flattened view of the elements of a square matrix that satisfy the mask
     n, m = x.shape
     assert n == m
-    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
+    return x[mask == mask_value]
 
 
 if __name__ == '__main__':

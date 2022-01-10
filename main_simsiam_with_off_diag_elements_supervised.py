@@ -310,8 +310,8 @@ def train(train_loader, model, optimizer, epoch, args):
         corr_matrix_2 = p2_norm @ z1_norm.T
 
         m = torch.zeros((labels.size(0), labels.size(0)), device=args.gpu)
-        for i in range(labels.size(0)):
-            m[i, labels[i] == labels] = 1
+        for j in range(labels.size(0)):
+            m[j, labels[j] == labels] = 1
         identity = torch.eye(labels.size(0), device=args.gpu)
 
         on_diag = - (torch.diagonal(corr_matrix_1).mean() + torch.diagonal(corr_matrix_2).mean()) * 0.5

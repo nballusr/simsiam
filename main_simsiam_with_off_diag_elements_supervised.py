@@ -312,12 +312,13 @@ def train(train_loader, model, optimizer, epoch, args):
         m = torch.zeros((labels.size(0), labels.size(0)), device=args.gpu)
         for i in range(labels.size(0)):
             m[i, labels[i] == labels] = 1
+        identity = torch.eye(labels.size(0), device=args.gpu)
 
         on_diag = - (torch.diagonal(corr_matrix_1).mean() + torch.diagonal(corr_matrix_2).mean()) * 0.5
         off_diag_diff_class = (torch.abs(matrix_values_with_mask(corr_matrix_1, m, 0)).mean() +
                                torch.abs(matrix_values_with_mask(corr_matrix_2, m, 0)).mean()) * 0.5
-        off_diag_same_class = - (matrix_values_with_mask(corr_matrix_1, m - torch.eye(labels.size(0)), 1).mean() +
-                                 matrix_values_with_mask(corr_matrix_2, m - torch.eye(labels.size(0)), 1).mean()) * 0.5
+        off_diag_same_class = - (matrix_values_with_mask(corr_matrix_1, m - identity, 1).mean() +
+                                 matrix_values_with_mask(corr_matrix_2, m - identity, 1).mean()) * 0.5
         loss = on_diag + args.lambda_for_loss_diff_class * off_diag_diff_class + args.lambda_for_loss_same_class * off_diag_same_class
         # Finishes the computation of loss
 

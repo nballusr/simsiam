@@ -319,6 +319,14 @@ def train(train_loader, model, optimizer, epoch, args):
                                torch.abs(matrix_values_with_mask(corr_matrix_2, m, 0)).mean()) * 0.5
         off_diag_same_class = - (matrix_values_with_mask(corr_matrix_1, m - identity, 1).mean() +
                                  matrix_values_with_mask(corr_matrix_2, m - identity, 1).mean()) * 0.5
+
+        # If all the samples in the batch are from the same class
+        if off_diag_diff_class.isnan():
+            off_diag_diff_class = torch.tensor(0, device=args.gpu)
+        # If all the samples in the batch are from different class
+        if off_diag_same_class.isnan():
+            off_diag_same_class = torch.tensor(0, device=args.gpu)
+
         loss = on_diag + args.lambda_for_loss_diff_class * off_diag_diff_class + args.lambda_for_loss_same_class * off_diag_same_class
         # Finishes the computation of loss
 

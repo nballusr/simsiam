@@ -298,19 +298,33 @@ def train(train_loader, model, optimizer, epoch, args):
         # compute output and loss
         p1, p2, z1, z2 = model(x1=images[0], x2=images[1])
 
-        # Compute extended Simsiam loss function (proposed by us) with off diagonal elements
+        # Compute combination of extended Simsiam loss function (proposed by us) and Barlow Twins' one
         p1_norm = torch.nn.functional.normalize(p1, dim=1)
         p2_norm = torch.nn.functional.normalize(p2, dim=1)
         z1_norm = torch.nn.functional.normalize(z1, dim=1)
         z2_norm = torch.nn.functional.normalize(z2, dim=1)
 
+        p1_norm_feat = torch.nn.functional.normalize(p1, dim=0)
+        p2_norm_feat = torch.nn.functional.normalize(p2, dim=0)
+        z1_norm_feat = torch.nn.functional.normalize(z1, dim=0)
+        z2_norm_feat = torch.nn.functional.normalize(z2, dim=0)
+
         corr_matrix_1 = p1_norm @ z2_norm.T
         corr_matrix_2 = p2_norm @ z1_norm.T
+
+        corr_matrix_1_feat = p1_norm_feat.T @ z2_norm_feat
+        corr_matrix_2_feat = p2_norm_feat.T @ z1_norm_feat
 
         on_diag = ((torch.diagonal(corr_matrix_1).add(-1).pow(2).mean() + torch.diagonal(corr_matrix_2).add(-1).pow(
             2).mean()) * 0.5).sqrt()
         off_diag = ((off_diagonal(corr_matrix_1).pow(2).mean() + off_diagonal(corr_matrix_2).pow(2).mean()) * 0.5).sqrt()
-        loss = on_diag + args.lambda_for_loss * off_diag
+
+        on_diag_feat = ((torch.diagonal(corr_matrix_1_feat).add(-1).pow(2).mean() + torch.diagonal(corr_matrix_2_feat).add(-1).pow(
+            2).mean()) * 0.5).sqrt()
+        off_diag_feat = ((off_diagonal(corr_matrix_1_feat).pow(2).mean() + off_diagonal(corr_matrix_2_feat).pow(
+            2).mean()) * 0.5).sqrt()
+
+        loss = on_diag + args.lambda_for_loss * off_diag + on_diag_feat + args.lambda_for_loss * off_diag_feat
         # Finishes the computation of loss
 
         losses.update(loss.item(), images[0].size(0))
